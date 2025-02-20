@@ -1,8 +1,8 @@
 import pandas as pd 
 from enum import Enum
 from decimal import Decimal,getcontext
-from hmmlearn.hmm import GaussianHMM
-
+from statsmodels.distributions.empirical_distribution import ECDF
+import matplotlib.pyplot as plt
 class FedPolicy(Enum):
     QE = 0.3
     QT = 0.7
@@ -165,30 +165,43 @@ def calculate_final_score(df):
     return df
 
 def compute_transition_matrix(df):
-    states = df['State']  # Use classified states (Low, Medium, High)
-    unique_states = ['Low', 'Medium', 'High']
-
-    # Initialize transition matrix
-    transition_matrix = pd.DataFrame(0, index=unique_states, columns=unique_states)
-
-    for (prev_state, next_state) in zip(states[:-1], states[1:]):
-        transition_matrix.loc[prev_state, next_state] += 1
-
-    # Normalize rows to convert to probabilities
-    transition_matrix = transition_matrix.div(transition_matrix.sum(axis=1), axis=0)
+    """
+    Compute the transition matrix for the hidden states.
+    """
+    # Calculate transition counts
+    transition_counts = pd.crosstab(df['State'], df['State'].shift(-1), normalize='index')
+    
+    # Normalize the transition counts to ensure each row sums to 1
+    transition_matrix = transition_counts.div(transition_counts.sum(axis=1), axis=0)
+    
     return transition_matrix
 
-def train_hmm(df, n_states=3):
-    model = GaussianHMM(n_components=n_states, covariance_type="full", n_iter=1000)
-    X = df[['DGS5']].values  # Use 5-year yields as features
-    model.fit(X)
-    return model
+def plot_yield_states(df):
+    # Compute transition matrix
+    transition_matrix = compute_transition_matrix(df)
+    
+    # Plot yield rates
+    plt.figure(figsize=(14, 7))
+    plt.plot(df.index, df['DGS5'], label='Yield Rate', color='blue')
+    
+    # Annotate states with different colors
+    colors = {'Low': 'green', 'Medium': 'orange', 'High': 'red'}
+    for state in df['State'].unique():
+        state_dates = df[df['State'] == state].index
+        plt.scatter(state_dates, df.loc[state_dates, 'DGS5'], label=state, color=colors[state], alpha=0.6)
+    
+    # Annotate transition probabilities
+    for i, state in enumerate(transition_matrix.index):
+        for j, next_state in enumerate(transition_matrix.columns):
+            prob = transition_matrix.loc[state, next_state]
+            plt.text(i, j, f'{prob:.2f}', ha='center', va='center', fontsize=12, color='black')
+    
+    plt.xlabel('Date')
+    plt.ylabel('Yield Rate')
+    plt.title('Yield Rates and States with Transition Probabilities')
+    plt.legend()
+    plt.show()
 
-def predict_states(model, df):
-    X = df[['DGS5']].values  # Observations
-    hidden_states = model.predict(X)  # Viterbi decoding
-    df['Predicted_Yield_State'] = hidden_states
-    return df
 
 
 
